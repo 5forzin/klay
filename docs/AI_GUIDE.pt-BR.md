@@ -1,19 +1,19 @@
 # Usando o klay com outra IA
 
-O klay (Kernel Relay) entrega no host evidências de crashes de kernel de uma VM Windows. A coleta ocorre após o Windows reiniciar. Use o código do Bug Check, os parâmetros, o dump e a análise do KD para investigar o driver e consultar o código-fonte correspondente.
+Depois que a VM reinicia, o klay coloca o dump e os relatórios do crash no host. Este guia mostra como acompanhar um teste e usar esses arquivos para investigar o driver.
 
 ## Antes de começar
 
-Leia o README e a configuração usada pelo monitor. O arquivo padrão é `%LOCALAPPDATA%\Klay\config.json`. Para outra VM, coloque `--config 'C:\Caminho\config.json'` antes de cada comando e passe `-Config` aos scripts do host. Use o mesmo arquivo em todas as operações.
+Confira a instalação no [README](../README.md) e abra a configuração do monitor. O caminho padrão é `%LOCALAPPDATA%\Klay\config.json`. Se usar outro arquivo, passe `--config 'C:\Caminho\config.json'` antes do comando e `-Config` aos scripts do host. Use a mesma configuração para o monitor e os comandos do teste.
 
-Os exemplos usam `klay` no PATH. Em uma instalação com o ambiente virtual do README, substitua por `.\.venv\Scripts\klay.exe` ou ative o ambiente virtual. Execute os scripts a partir do checkout do projeto.
+Os exemplos usam `klay` no PATH. Com o ambiente virtual do README, ative o ambiente ou escreva `.\.venv\Scripts\klay.exe`. Execute os scripts a partir da pasta do projeto.
 
 ```powershell
 $config = Get-Content "$env:LOCALAPPDATA\Klay\config.json" -Raw | ConvertFrom-Json
 klay status
 ```
 
-`status` lê arquivos do monitor; não faz uma consulta nova ao guest. Consulte novamente após alguns segundos e confirme que `status.hostTimeUtc` avançou. Verifique:
+`status` lê a última informação gravada pelo monitor. Execute novamente após alguns segundos: `status.hostTimeUtc` deve avançar. Confira estes campos:
 
 - `status.guestHeartbeatAgeSeconds`: idade do heartbeat do guest.
 - `status.guestReachability`: `online` com heartbeat recente; `unknown` quando não há informação recente.
@@ -22,9 +22,9 @@ klay status
 - `status.guestHeartbeat.pagefiles`: pagefiles ativos após o reinício.
 - `latest.crashId` e `latest.analysisState`: último crash observado e andamento da análise.
 
-Heartbeat antigo pode indicar VM desligada, share indisponível ou cópia de um dump grande. Sozinho, ele não comprova BSOD. Um `latest` antigo também não comprova que o teste atual falhou.
+Se o heartbeat estiver antigo, confira a VM e a pasta compartilhada. A cópia de um dump grande também pode atrasar essa atualização. Para saber se houve um Bug Check no teste atual, você precisa de um `crashId` novo com o evento correspondente.
 
-## Vincular a build antes do teste
+## Antes de testar uma build
 
 Use o `.sys` e o `.pdb` produzidos pela mesma compilação:
 
@@ -36,11 +36,13 @@ $before = klay status | ConvertFrom-Json
 $previousCrash = $before.latest.crashId
 ```
 
-O comando arquiva os binários em `build_root`, calcula os hashes e publica `active-run.json`. Quando o source é um repositório Git, registra a revisão e se havia modificações locais. O klay não compila nem carrega o driver e não copia o código-fonte. Preserve o source da build para comparar as linhas corretas. O manifesto registra a intenção do teste; confirme no KD o módulo carregado e a correspondência do PDB.
+`arm` copia os binários para `build_root`, calcula os hashes e grava `active-run.json`. Se `--source` apontar para um repositório Git, também registra a revisão e se havia alterações locais.
 
-## Aguardar e ler o crash
+Compile o driver antes de executar `arm`; depois, carregue o `.sys` selecionado pelo fluxo do seu projeto. Preserve o código-fonte dessa build: o klay registra seu caminho, mas os arquivos continuam lá. Quando ler o relatório, confira se o módulo carregado e o PDB correspondem aos arquivos que você selecionou.
 
-Mantenha `klay watch` ou `Start-Klay.ps1` em execução. Depois de iniciar o teste do driver:
+## Espere um crash novo
+
+Deixe o monitor rodando com `klay watch` ou `Start-Klay.ps1`. Depois de iniciar o teste do driver, espere um crash diferente daquele que já estava em `latest.json`:
 
 ```powershell
 if ($previousCrash) {
@@ -51,15 +53,17 @@ if ($previousCrash) {
 $waitExitCode = $LASTEXITCODE
 ```
 
-`wait` acompanha `latest.json`; ele precisa de um monitor ativo. Com `--require-analysis`, retorna quando a análise do novo crash chega a `complete` ou `failed`. Sem essa opção, pode retornar apenas os metadados, enquanto o dump ainda está sendo coletado.
+`wait` acompanha `latest.json`, que o monitor atualiza. Com `--require-analysis`, a espera termina quando a análise chega a `complete` ou `failed`. Se omitir essa opção, o comando pode retornar assim que houver metadados, enquanto o dump ainda está sendo copiado.
 
 | Código de saída | Significado |
 | --- | --- |
 | `0` | Crash observado; com `--require-analysis`, análise concluída. |
 | `1` | Falha de análise ou erro operacional; leia a saída e os relatórios disponíveis. |
-| `2` | Tempo esgotado. Isso não prova que ocorreu um crash. |
+| `2` | A espera terminou sem um novo resultado que atendesse aos critérios do comando. |
 
-Localize os arquivos pelos caminhos que o klay fornece:
+## Abra os relatórios
+
+Leia os caminhos em `latest.json`:
 
 ```powershell
 $latest = Get-Content (Join-Path $config.runtime_root 'latest.json') -Raw | ConvertFrom-Json
@@ -72,27 +76,29 @@ No diretório `latest.crashDirectory`:
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `crash.json` | Código, quatro parâmetros, boot, evento de origem e build selecionada. |
-| `event.xml` / `system-events.json` | Evidências dos eventos do Windows. |
+| `crash.json` | Código do Bug Check, quatro parâmetros, boot, evento de origem e build selecionada. |
+| `event.xml` / `system-events.json` | Evento do crash e outros eventos recentes do Windows. |
 | `memory.dmp` | Dump binário para o debugger. |
 | `ready.json` | Marcador de publicação concluída, tamanho e SHA-256 do dump. |
 | `analysis.txt` | Saída completa do KD, stack, módulos e símbolos. |
 | `analysis.json` | Estado, resumo extraído, timestamps e erro quando houver. |
 | `analysis.commands.txt` | Comandos utilizados pelo KD. |
 
-Estados: `no_crash_observed`, `waiting_for_dump`, `pending`, `running`, `complete` e `failed`. `complete` indica que o KD terminou e passou pelas verificações do klay; a conclusão sobre a causa ainda depende da análise técnica.
+Sem um crash registrado, `analysisState` mostra `no_crash_observed`. Os estados de um crash são `waiting_for_dump`, `pending`, `running`, `complete` e `failed`; algumas etapas podem terminar entre duas consultas. Em `complete`, o KD terminou e o resultado passou pelas verificações do klay. Leia a stack e os símbolos para entender a causa.
 
 ## Investigar o driver
 
-Leia `.bugcheck`, `!analyze -v`, `kv`, módulos e mensagens de símbolos no `analysis.txt`. Compare o código e os parâmetros com `crash.json`. O monitor verifica SHA-256 e tamanho antes da análise e rejeita divergência de código ou dos parâmetros quando o KD os fornece.
+Comece pela saída de `.bugcheck`, `!analyze -v` e `kv` em `analysis.txt`. Compare o código e os parâmetros com `crash.json`. O monitor já verifica tamanho e SHA-256 do dump e rejeita divergências entre o evento e o resultado do KD, incluindo os parâmetros quando o debugger os fornece.
 
-Confirme módulo, timestamp e PDB; use o source da build arquivada para localizar a função e a linha da stack. Examine o contrato da API, o IRQL, o tempo de vida dos objetos e a sincronização conforme o Bug Check observado. Um nome de módulo apontado pelo debugger é evidência a investigar. A ausência de PDB privado não demonstra que aquele driver causou o crash.
+Confira módulo, timestamp e PDB antes de procurar a função e a linha no código-fonte. Use a versão do código que gerou a build selecionada. A partir da stack e do Bug Check, investigue o ponto de falha: IRQL, tempo de vida de objetos, sincronização ou contrato da API, conforme o caso.
 
-Reporte o `crashId`, código e nome do Bug Check, parâmetros, módulo, stack relevante, validade dos símbolos, build/revisão, evidência que sustenta a hipótese e próximo teste. Não atribua um dump antigo ao teste atual.
+O módulo apontado pelo debugger ajuda a começar a investigação. Confirme a hipótese com a stack e o código. Se faltar PDB privado, registre a limitação e evite atribuir uma linha ou função que o relatório não mostra.
 
-## Refazer a análise
+Ao relatar o problema, inclua o `crashId` e a build/revisão. Mostre o código e o nome do Bug Check, os parâmetros e o trecho da stack que sustenta a hipótese. Diga se os símbolos estão corretos e qual teste deve confirmar a correção.
 
-`analyze` usa o mesmo lock do monitor. Para um monitor iniciado por `Start-Klay.ps1`, pare antes e reinicie depois:
+## Rodar o KD novamente
+
+Pare o monitor antes de usar `analyze`, pois os dois usam o mesmo lock. Se você iniciou pelo script:
 
 ```powershell
 .\scripts\Stop-Klay.ps1
@@ -100,7 +106,7 @@ klay analyze '<crashId>'
 .\scripts\Start-Klay.ps1
 ```
 
-Se iniciou `klay watch` no terminal, encerre com Ctrl+C antes da reanálise e execute `klay watch` novamente depois.
+Se iniciou `klay watch` no terminal, pare com Ctrl+C e execute `klay watch` novamente depois da análise.
 
 Para comandos extras de diagnóstico, use um arquivo local que você revisou:
 
@@ -108,14 +114,14 @@ Para comandos extras de diagnóstico, use um arquivo local que você revisou:
 klay analyze '<crashId>' --commands-file 'C:\KlayData\extra-commands.txt'
 ```
 
-Faça esse comando enquanto o monitor estiver parado. A reanálise substitui os relatórios anteriores; preserve uma cópia antes se precisar comparar resultados.
+A reanálise substitui os relatórios anteriores. Faça uma cópia antes se precisar comparar as saídas.
 
-## Quando falta evidência
+## Quando algo falha
 
-Se o heartbeat parou, confira o processo do host, o estado da VM, VMware Tools, o share e a tarefa `Klay-Export`. Erros do host ficam em `runtime_root\host.log`; no guest, o exporter grava `C:\ProgramData\Klay\status.json` e preserva o spool até publicar o dump.
+Se o heartbeat parou, confira se o processo do host está rodando. No guest, verifique VMware Tools, o acesso ao share e a tarefa `Klay-Export`. Procure erros em `runtime_root\host.log` no host e em `C:\ProgramData\Klay\status.json` no guest. O dump fica no spool local até a publicação terminar.
 
-Se existe um Bug Check mas o dump não chega, leia `crash.json.error`, confirme pagefile ativo, configuração de dump, espaço disponível e `volmgr` 46/161 do boot atual. Após configurar pagefile e dump, reinicie e confira o próximo heartbeat. Alguns ambientes precisam de mais de um boot até o pagefile ficar disponível ao mecanismo de dump. Um evento antigo de `volmgr` não determina o estado atual.
+Se existe um evento de Bug Check mas falta o dump, leia `crash.json.error`. Confira o pagefile ativo, a configuração de dump, o espaço disponível e os eventos `volmgr` 46/161 do boot atual. Depois de mudar pagefile ou dump, reinicie e confira o próximo heartbeat. Na VM usada no teste original, foi necessário mais um boot para o pagefile ficar disponível ao mecanismo de dump. Considere os eventos do boot atual ao verificar se isso foi resolvido.
 
-Se a análise falhou, leia `analysis.json.error` e `analysis.txt`: confira integridade do dump, caminho do KD, timeout e símbolos. Um timeout do `wait` só limita a espera do cliente; a coleta e a análise podem continuar.
+Se o KD falhou, leia `analysis.json.error` e `analysis.txt`. O erro pode apontar para integridade do dump, caminho do debugger, timeout ou símbolos. Se apenas `wait` terminou por timeout, confira o estado novamente: o monitor continua coletando e analisando.
 
-Dumps, logs, arquivos de build e caminhos de source devem ficar fora do Git. Compartilhe apenas trechos revisados. Testes que provocam um crash ou reiniciam a VM dependem da autorização do responsável pelo ambiente.
+Guarde dumps, logs e arquivos de build fora do Git. Revise os trechos que precisar compartilhar. Combine com o responsável pela VM antes de provocar um crash ou reiniciá-la.

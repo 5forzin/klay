@@ -1,6 +1,6 @@
 # Architecture
 
-klay has a Windows PowerShell guest exporter and a Python host monitor. The shared folder carries data; the guest task executes a protected local copy of its scripts. No network server or AI provider integration is required.
+The guest runs a PowerShell exporter. The host runs a Python monitor and KD. They exchange files through VMware Shared Folders.
 
 ```mermaid
 flowchart LR
@@ -15,23 +15,27 @@ flowchart LR
 
 ## Guest
 
-`Install-Guest.ps1` backs up CrashControl values with their registry types and raw data, together with pagefile settings. It enables Automatic Memory Dump and automatic reboot, configures a system-managed pagefile and registers the SYSTEM task `Klay-Export`. The default installation is `C:\ProgramData\Klay`.
+`Install-Guest.ps1` saves the current CrashControl values, their registry types, and the pagefile settings. It then enables Automatic Memory Dump, automatic reboot, and a system-managed pagefile. The SYSTEM startup task `Klay-Export` runs scripts from `C:\ProgramData\Klay`, which is writable by SYSTEM and administrators. The shared folder carries reports; the task runs a protected local copy of its code.
 
-`Export-Crashes.ps1` polls every 15 seconds. Crash identification is based on the current boot: WER SystemErrorReporting event 1001 takes precedence; Kernel-Power event 41 is a fallback only when its BugcheckCode is nonzero. The crash ID combines the computer name and the UTC boot timestamp. This version captures the crash preceding the current boot rather than reconstructing every historical event.
+`Export-Crashes.ps1` polls every 15 seconds for a crash report associated with the current boot. It checks WER SystemErrorReporting event 1001 first, then Kernel-Power event 41 with a nonzero BugcheckCode. If WER arrives later, it replaces the fallback report for that boot. The crash ID combines the computer name and the UTC boot timestamp. Older events aren't imported as a crash history.
 
-Capture writes metadata and copies the dump into a local spool before attempting publication. It checks the timestamp window, blocks capture while a writer holds the file and records a SHA-256 hash. Publication copies to a `.partial` filename, verifies the copy, renames the dump and writes `ready.json` last. Successful publication removes only the duplicate spool dump; the Windows dump and crash archives remain. Unpublished spools survive a temporary loss of share access.
+The exporter writes metadata and copies the dump into a local spool before trying the share. It checks the dump's timestamp and waits if a writer still holds the file. Once the copy is stable, it records the size and SHA-256.
 
-The guest upgrades a fallback report when WER becomes available and emits a heartbeat containing dump settings, active pagefiles and provider-qualified system events.
+On the share, the dump first has a `.partial` filename. The exporter verifies the transferred copy, renames it to `memory.dmp`, and writes `ready.json` last. It then deletes the duplicate spool dump. The Windows dump and host archive stay in place. If publication fails, the local spool is available for the next attempt.
+
+The guest also writes a heartbeat with dump settings, active pagefiles, and recent system events. Events include their provider because an event ID alone doesn't identify the report type.
 
 ## Host
 
-`klay watch` refreshes status every five seconds and uses one analysis worker. A runtime file lock prevents concurrent monitors using the same runtime directory. Configure one monitor and runtime per shared root.
+`klay watch` refreshes status every five seconds and sends pending dumps to one analysis worker. A file lock prevents a second monitor from using the same runtime directory. Give each shared root one monitor and its own runtime directory.
 
-A ready manifest must identify the same crash directory, name `memory.dmp`, and match the dump's size and SHA-256. KD receives a fixed command file, Microsoft symbols, an isolated symbol cache and optional archived driver/PDB paths. Shell commands are disabled with `-noshell`; environment debugger settings are ignored with `-sins`.
+Before starting KD, the monitor checks that `ready.json` identifies the crash directory, names `memory.dmp`, and matches the file's size and SHA-256. KD reads a command file and uses Microsoft symbols cached under the runtime directory. If a build was selected, it also gets the archived driver and PDB paths. The arguments include `-noshell` to disable shell commands and `-sins` to ignore debugger environment settings.
 
-A successful result requires KD exit code zero, a completion marker and a parsed Bug Check code. The code must agree with the event; available parsed parameters must also agree. Failure keeps the dump and debugger output. On monitor restart, an interrupted `running` analysis becomes pending and is retried.
+The monitor marks an analysis `complete` when KD exits with code zero, prints the completion marker, and reports a Bug Check code that matches the event. It also compares the four parameters when KD provides them. On failure, the dump and debugger output remain available. After a monitor restart, interrupted `running` analyses return to `pending` for another attempt.
 
-`arm` archives exact `.sys` and `.pdb` bytes and records optional source/Git metadata. The guest's build reference is resolved through the configured host build archive and verified against local hashes. Arming identifies the planned test; module and symbol matching remain a debugger check. Source files are referenced rather than snapshotted.
+`arm` copies the selected `.sys` and `.pdb` into the build archive and records their hashes. With `--source`, it records the source path and, for a Git repository, the revision and whether the worktree had changes. Source files stay at that path, so the caller must preserve the version used for the build.
+
+The guest reports the selected build ID. The host finds that ID inside its configured build archive and checks the local file hashes before giving the paths to KD. Guest metadata cannot supply an arbitrary host build path. The selected build still needs to match the module and PDB that appear in the debugger report.
 
 ## Files and states
 
@@ -43,15 +47,9 @@ A successful result requires KD exit code zero, a completion marker and a parsed
 | Runtime root | Host status, latest crash pointer, monitor lock/state, log and symbol cache. |
 | Build root | Exact driver/PDB archives and build manifests. |
 
-JSON uses `schema: 1`; changes to field semantics need a documented compatibility decision. `latest.json` selects the newest boot, not whichever analysis finished last. Readers use `analysisState` to distinguish missing dumps, queued/running analysis and complete/failed results.
+JSON uses `schema: 1`. Document a migration before changing what its fields mean. `latest.json` points to the newest observed boot. Its `analysisState` tells the reader whether the dump is missing, queued, being analyzed, or finished.
 
-Heartbeat freshness is a reachability signal. Dump transfer can delay guest heartbeat writes, and the host cannot infer a Bug Check from silence. Metadata, publication and analysis are separate stages, so an event may be available while the dump is still pending.
-
-## Boundaries
-
-All crash reports and dumps are local artifacts. Treat guest metadata, debugger output and custom command files as diagnostic data to review. The SYSTEM task must continue executing only protected local code. Deployment credentials are used only for an optional `vmrun` installation; no watcher needs them.
-
-This version targets Windows x64 with VMware Workstation Shared Folders. Live debugging, automatic driver deployment, source snapshots, retention policies and transport for other hypervisors are outside its current behavior.
+Copying a large dump can delay the guest heartbeat. A stale heartbeat therefore sets reachability to `unknown`. Bug Check detection uses the Windows event, and that event may reach the host before the dump finishes copying.
 
 ## References
 

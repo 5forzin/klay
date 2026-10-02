@@ -1,37 +1,16 @@
-# klay — Kernel Relay
+# klay
 
-Windows kernel crash collection and analysis for developers and AI coding agents.
+When a Windows driver crashes your VM, the dump stays in the guest. If your code and tools are on the host, you have to go back into the VM to collect it before you can debug the failure.
 
-## The problem
+klay (Kernel Relay) copies the Bug Check report and memory dump to the host after Windows restarts. It checks the dump's size and SHA-256, runs Microsoft's KD debugger, and saves the result as JSON and a text report. Give a coding agent the [AI guide](docs/AI_GUIDE.pt-BR.md) so it knows where to find those files and how to read them.
 
-When a Windows driver crashes a development VM, the evidence stays inside the guest: the Bug Check, its parameters, system events and the memory dump. A developer or coding agent working on the host must recover these files, identify the tested build and run a debugger before continuing.
-
-**klay relays that evidence to the host after the VM reboots.** It collects the crash, verifies the dump and runs Microsoft's KD debugger, producing JSON summaries and a detailed text report that a developer or AI agent can read.
-
-## What the first version does
-
-- Captures WER Bug Check reports, with nonzero Kernel-Power Bug Check codes as a fallback.
-- Spools dumps locally in the guest while the shared folder is unavailable.
-- Publishes completed dumps with size and SHA-256 verification.
-- Runs offline KD analysis and checks the result against the event's code and available parameters.
-- Preserves the exact `.sys` and `.pdb` files selected for a test, with optional source path and Git revision metadata.
-- Exposes `status`, `wait`, `arm` and `analyze` commands, plus files for other tools to consume.
-
-Capture happens after Windows restarts. A missing heartbeat is reported as unknown reachability; it does not establish a BSOD. klay provides diagnostic evidence; the debugger's module attribution still needs review.
-
-## Requirements
-
-- Windows x64 host and guest, VMware Workstation with VMware Tools and Shared Folders enabled.
-- Python 3.11 or later on the host; Windows PowerShell 5.1 in the guest.
-- Microsoft WinDbg or Debugging Tools for Windows, including `kd.exe`, on the host.
-- Administrator access for the one-time guest installation.
-- Space for the guest's Windows dump and spool copy, host crash archives and symbol cache.
-
-The Python host has no third-party runtime dependencies. Continuous monitoring uses the shared folder without guest credentials or an AI service key. Each VM needs its own shared root and runtime root, with one host monitor for that share.
+Before each test, `klay arm` saves copies of the driver's `.sys` and `.pdb`. That keeps the selected build available even after you compile the next one.
 
 ## Setup
 
-Clone the repository and install the host CLI in a virtual environment:
+You'll need a Windows x64 host and guest, VMware Workstation, VMware Tools, and Shared Folders. Install Python 3.11 or later and Microsoft's WinDbg or Debugging Tools for Windows on the host; klay uses `kd.exe`. The guest scripts run in Windows PowerShell 5.1.
+
+Clone the repo and install the CLI:
 
 ```powershell
 git clone https://github.com/5forzin/klay.git
@@ -41,7 +20,7 @@ python -m venv .venv
 .\.venv\Scripts\klay.exe --version
 ```
 
-Create `C:\KlayShare` on the host. In VMware, share that directory under the name `Klay`, enable the share and install VMware Tools in the guest. These are example paths; select paths for your environment.
+Create `C:\KlayShare` on the host and share it in VMware under the name `Klay`. Enable the share and check that the guest can open it. Change these example paths if you use a different directory.
 
 ```powershell
 .\.venv\Scripts\klay.exe init --shared-root 'C:\KlayShare'
@@ -49,16 +28,16 @@ New-Item -ItemType Directory -Path 'C:\KlayShare\setup' -Force
 Copy-Item .\guest\*.ps1 -Destination 'C:\KlayShare\setup' -Force
 ```
 
-The default configuration is `%LOCALAPPDATA%\Klay\config.json`. Runtime state, symbol cache and archived builds also live there, outside the checkout. Use global `--config` before a command for another configuration, and `init --data-root` for another data directory. `config.example.json` describes the configuration fields.
+`init` writes `%LOCALAPPDATA%\Klay\config.json`. Runtime files, symbols, and build archives use that directory too. For a different location, pass `--config` before the command and use `init --data-root`. See [config.example.json](config.example.json) for the available fields. Give each VM its own shared root and runtime root, with one monitor per share.
 
-Inside the VM, open **an elevated Windows PowerShell** and run:
+Inside the VM, open Windows PowerShell as administrator and run:
 
 ```powershell
 & '\\vmware-host\Shared Folders\Klay\setup\Install-Guest.ps1' `
     -ShareRoot '\\vmware-host\Shared Folders\Klay'
 ```
 
-The installer saves the original settings, configures Automatic Memory Dump and an automatically managed pagefile, enables automatic restart, and registers `Klay-Export` as a SYSTEM startup task. Its local code directory is writable by SYSTEM and administrators. Restart the VM to activate the dump and pagefile changes. Installation itself does not restart it.
+The installer backs up the guest's dump and pagefile settings, enables Automatic Memory Dump and automatic restart, and creates the SYSTEM startup task `Klay-Export`. It copies the scripts to a local directory writable by SYSTEM and administrators. Restart the VM yourself to activate the new settings.
 
 Start the host monitor from the checkout:
 
@@ -67,11 +46,13 @@ Start the host monitor from the checkout:
 .\.venv\Scripts\klay.exe status
 ```
 
-Check that the host timestamp advances, a fresh guest heartbeat appears, the guest has an active pagefile and `currentBootDumpErrors` is empty. If Windows reports `volmgr` 46 or 161, fix dump initialization or storage before relying on capture. See [the AI guide](docs/AI_GUIDE.pt-BR.md) for diagnosis.
+Run `status` again after a few seconds. The host timestamp should advance and the guest heartbeat should be recent. Check for an active pagefile and an empty `currentBootDumpErrors` list. The [AI guide](docs/AI_GUIDE.pt-BR.md#quando-algo-falha) covers missing heartbeats and `volmgr` errors.
 
-`Start-Klay.ps1` adds a startup shortcut only with `-InstallStartup`. The foreground alternative is `klay watch`; `klay once` scans and processes pending dumps, then exits. The installation above puts `klay.exe` in `.venv\Scripts`; use its full path or activate the virtual environment for the shorter command.
+Omit `-InstallStartup` if you don't want a startup shortcut. To run in a terminal, use `klay watch`. Use `klay once` to process pending dumps and exit. The examples below use `klay` on the PATH; activate the virtual environment or use `.\.venv\Scripts\klay.exe`.
 
-## Working with a driver
+## Driver tests
+
+Select files from the same build before loading the driver:
 
 ```powershell
 klay arm --driver 'C:\DriverProject\x64\Debug\Example.sys' `
@@ -80,19 +61,23 @@ klay arm --driver 'C:\DriverProject\x64\Debug\Example.sys' `
 klay wait --timeout 600 --require-analysis
 ```
 
-Run `arm` before each test with files from the same build. Driver compilation, deployment and loading belong to the driver project. Save the previous `latest.crashId` and pass it to `wait --after` when waiting for a new crash.
+Keep the monitor running while you compile, deploy, and test your driver. When repeating a test, save the previous `latest.crashId` and pass it to `wait --after` so the command waits for a new crash. The [AI guide](docs/AI_GUIDE.pt-BR.md#espere-um-crash-novo) has a complete example.
 
-Reports are written under `<shared_root>\crashes\<crashId>\`: `crash.json`, system events, `memory.dmp`, `ready.json`, `analysis.txt` and `analysis.json`. `<runtime_root>\latest.json` points to the latest observed crash; `<runtime_root>\status.json` contains monitoring and dump configuration state. Read [the AI guide](docs/AI_GUIDE.pt-BR.md) for commands, exit codes and interpretation.
+Open `analysis.txt` under `<shared_root>\crashes\<crashId>\` for the debugger report. The same directory holds `memory.dmp`, the Windows events, and JSON metadata. `<runtime_root>\latest.json` gives you the paths for the most recent crash; `<runtime_root>\status.json` holds monitor and guest status.
 
-## Operation and limits
+## When a dump doesn't arrive
 
-- Windows must reboot and VMware shared-folder access must return before the host receives new evidence. No live kernel debugging or screen capture is provided.
-- A crash that prevents Windows from writing a dump can yield event metadata without a dump. Archives and failed analyses are preserved for inspection.
-- `arm` records intended build provenance. Check the loaded module and matching PDB in the debugger report; it does not prove which driver Windows loaded or snapshot source files.
-- Dumps, logs and build archives can contain sensitive data. Keep them in private storage; review any evidence before sharing it. Archives have no automatic retention cleanup.
-- Installation through `scripts/Deploy-Guest.ps1` is optional. VMware's `vmrun` takes credentials in transient process arguments; use the manual guest installer to avoid that exposure. Monitoring stores no passwords.
+The host gets the crash after Windows boots and the shared folder becomes available. The guest keeps a local spool while the share is down. If Windows couldn't write a dump, klay may have only the Bug Check event. A stale heartbeat sets reachability to `unknown`; check the VM and share before assuming a BSOD.
+
+Leave enough disk space for the Windows dump, its guest spool copy, host archives, and symbols. Archives accumulate until you remove them. Keep dumps and logs in private storage and review them before sharing.
+
+For build matching, symbol checks, and analysis errors, read the [AI guide](docs/AI_GUIDE.pt-BR.md). [Architecture](docs/ARCHITECTURE.md) explains capture and publication in detail.
+
+## Stopping and restoring settings
 
 Stop a monitor launched by `Start-Klay.ps1` with `scripts/Stop-Klay.ps1`; add `-RemoveStartup` to remove its matching shortcut. Stop a foreground `klay watch` with Ctrl+C. To restore guest dump and pagefile settings, run `C:\ProgramData\Klay\Restore-Guest.ps1` in an elevated guest PowerShell, then restart the guest. Captured data is retained.
+
+The manual installer above needs no saved password. The optional `scripts/Deploy-Guest.ps1` uses VMware's `vmrun`, which exposes credentials in transient process arguments during installation. The running monitor reads the shared folder without credentials.
 
 ## Development
 
@@ -103,6 +88,6 @@ powershell -NoProfile -File .\tests\Test-GuestExporter.ps1
 powershell -NoProfile -File .\tests\Test-HostMonitor.ps1
 ```
 
-Tests use temporary synthetic fixtures and do not generate a BSOD. CI runs them on Windows with Python 3.11 and 3.14. The original pipeline was also validated against a real controlled VM crash; see [validation evidence and limits](docs/VALIDATION.md).
+These tests use temporary files and leave the VM alone. CI runs them on Windows with Python 3.11 and 3.14. See [validation](docs/VALIDATION.md) for test coverage and the results from the original relay's controlled VM crash.
 
-See [architecture](docs/ARCHITECTURE.md), [contributing](CONTRIBUTING.md) and [agent instructions](AGENTS.md).
+For changes to the project, read [contributing](CONTRIBUTING.md) and [agent instructions](AGENTS.md). The Python runtime uses only the standard library.

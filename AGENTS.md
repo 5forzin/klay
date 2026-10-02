@@ -1,6 +1,6 @@
 # Working on klay
 
-klay means Kernel Relay. It exposes Windows VM crash evidence to host developers and coding agents after reboot.
+klay means Kernel Relay. It collects Windows VM Bug Check reports and dumps on the host after reboot.
 
 Before editing, read `README.md` and `docs/ARCHITECTURE.md` in full, then inspect the affected code and tests. Keep the Portuguese AI guide accurate when commands or interpretation change.
 
@@ -13,4 +13,4 @@ Before editing, read `README.md` and `docs/ARCHITECTURE.md` in full, then inspec
 - Run Python tests and all three PowerShell checks before finishing. Validate package installation when changing the CLI or packaging.
 - Do not add a server, dashboard, AI service dependency or driver deployment workflow without a request for that scope.
 
-Use English for CLI output and concise, descriptive commits.
+Use English for CLI output and concise, descriptive commits. Follow the writing guidance in `CONTRIBUTING.md` when editing documentation. Keep the README in English and the AI guide in Brazilian Portuguese.

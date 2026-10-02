@@ -1,16 +1,16 @@
 # Validation
 
-## Automated checks
+## Automated tests
 
-Python tests exercise crash discovery, partial files, size/hash verification, path validation, heartbeat interpretation, newest-boot selection, waiting for a new crash, build archiving, dump/event consistency and rejection of failed KD output. An invalid-dump test invokes an installed KD on Windows, or skips with an explicit reason when KD is unavailable.
+The Python suite checks crash discovery, partial files, hashes, paths, heartbeat age, and build archives. It also tests waiting for a new crash and rejects debugger output that fails or disagrees with the Windows event. The invalid-dump test runs an installed KD; it reports a skip if KD isn't available.
 
-PowerShell checks parse all scripts and test event extraction. The exporter test loads only function definitions and uses temporary synthetic files to verify offline spooling, recovery when a share becomes available, transfer integrity, repeated publication and blocking/recovery while a writer holds a dump. The host test launches a temporary monitor through a Windows venv, checks advancing status and duplicate rejection, then stops only that matching monitor. These tests do not inspect real system events, install tasks, change crash settings or generate a BSOD.
+The PowerShell tests parse the scripts and extract event data from fixtures. The exporter test copies temporary files through a simulated share outage, retries publication, and checks the transferred hash. It also holds a dump open for writing to check that capture waits until the writer closes. The host test starts a monitor through a Windows venv, checks that status advances, rejects a duplicate launch, and stops the monitor.
 
-CI runs on Windows with Python 3.11 and 3.14. It installs the host CLI and runs the same tests. CI does not emulate VMware or prove capture from a real VM.
+CI installs the CLI and runs these tests on Windows with Python 3.11 and 3.14. The fixtures use temporary files and don't change a VM's settings. A real crash test is a separate check.
 
-## Controlled VM validation of the original pipeline
+## The original VM crash test
 
-Before this repository was created, the pipeline that klay is based on was exercised on an authorized Windows 11 x64 VMware Workstation VM on 2026-10-02. The guest had VMware Tools, Automatic Memory Dump, automatic reboot and an active system-managed pagefile. A signed Microsoft Sysinternals NotMyFault binary generated the controlled failure inside that VM.
+On 2026-10-02, the original relay was tested in a Windows 11 x64 VMware Workstation VM, with its owner's permission. The guest had VMware Tools, Automatic Memory Dump, automatic reboot, and an active system-managed pagefile. A signed Microsoft Sysinternals NotMyFault binary caused the test crash.
 
 | Observation | Result |
 | --- | --- |
@@ -23,12 +23,12 @@ Before this repository was created, the pipeline that klay is based on was exerc
 | End-to-end time | About 70 seconds from trigger to completed analysis |
 | Recovery | Guest returned online; no current-boot `volmgr` 46/161 errors |
 
-The original environment needed an additional boot after enabling its previously absent pagefile before dump initialization succeeded. A reboot receipt alone was insufficient; the active pagefile and current-boot diagnostics mattered.
+The guest initially had no pagefile. Enabling it took an additional boot before Windows initialized dump capture correctly. The active pagefile and the `volmgr` events from the current boot showed when the VM was ready for the test.
 
-This evidence validates the original transport and analysis flow. The repository's renamed scripts, CLI packaging and generic configuration are checked by automated tests; they have not independently undergone another real crash test. Timing and debugger attribution above are one observed result, not a guarantee for other guests or driver bugs. Private NotMyFault symbols were unavailable; the test did not establish source-line debugging for a project driver.
+These results come from that VM and that crash. The packaged CLI and renamed guest task still need a separate real-VM crash test. The 70-second result will vary with dump size, disk speed, and symbol downloads. Private NotMyFault symbols were unavailable, so source-line debugging with a project's own PDB remains untested.
 
-The repository contains the validation description, not the original dump, credentials, machine identifiers or event artifacts. No crash-inducing binary is bundled.
+The raw dump and events are kept in local storage, outside this repository. The crash tool is available from [Microsoft Sysinternals](https://learn.microsoft.com/en-us/sysinternals/downloads/notmyfault).
 
 ## Repeating a real test
 
-Use a disposable development VM, confirm dump initialization and monitor health, then obtain explicit authorization before deliberately crashing that environment. Follow [Microsoft's NotMyFault documentation](https://learn.microsoft.com/en-us/sysinternals/downloads/notmyfault). Keep the resulting dump and logs outside Git. Record the event, hashes, debugger completion, elapsed time and guest recovery without publishing private memory content.
+Use a disposable development VM and agree on the crash and reboot window with its owner. Check the pagefile, current-boot dump errors, and monitor status first. Follow Microsoft's NotMyFault documentation, then record the event, hashes, KD result, elapsed time, and guest recovery. Keep the dump and logs outside Git and review any excerpts before sharing them.

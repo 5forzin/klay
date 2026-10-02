@@ -1,8 +1,8 @@
 # Contributing
 
-Read `README.md`, `AGENTS.md` and `docs/ARCHITECTURE.md` before changing the pipeline. Keep changes focused and update affected docs with the code.
+Read `README.md`, `AGENTS.md`, and `docs/ARCHITECTURE.md` before changing the relay. Update the affected docs in the same change as the code.
 
-Use Python 3.11 or later and Windows PowerShell 5.1. The Python runtime uses the standard library. From the checkout, run:
+Use Python 3.11 or later and Windows PowerShell 5.1. Keep the Python runtime on the standard library. Run these checks from the checkout:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -12,6 +12,18 @@ powershell -NoProfile -File .\tests\Test-HostMonitor.ps1
 python -m pip wheel --no-deps --wheel-dir "$env:TEMP\klay-wheel-check" .
 ```
 
-Test publication and integrity failure paths with synthetic fixtures. Real crash, reboot, task installation and restore operations require a deliberately selected development VM and authorization; keep them out of CI.
+Use temporary fixtures to test publication failures and corrupted files. Run real crash tests, restarts, task installation, and settings restoration in a development VM with its owner's permission. CI uses fixtures.
 
-Keep configuration, credentials, dumps, driver binaries, PDBs, logs, screenshots and generated packages outside commits. Review the staged file list as well as the diff. Preserve the `schema: 1` interface or document a migration with the change. English is used for CLI messages and the README; the Portuguese AI guide should stay accurate.
+Check the staged file list before committing. Local configuration, credentials, dumps, driver binaries, PDBs, logs, screenshots, and generated packages belong outside Git. Document a migration if you change the meaning of a `schema: 1` field.
+
+## Writing
+
+Write for someone trying to debug a driver. Start with what happened or what they need to do next. Name the command, file, or process that does the work, and explain why a step matters when the reason isn't obvious. Keep the README in English and the AI guide in Brazilian Portuguese.
+
+- Use ordinary verbs and consistent technical terms. Use `dump` consistently when that's what you mean.
+- Give each paragraph a job. Link to the detailed guide instead of repeating the same explanation across sections.
+- Use lists for steps or options and tables for fields or comparisons. Keep explanations in prose when a list adds nothing.
+- Cut promotional adjectives, empty transitions, and repeated summaries. Phrases such as “seamlessly,” “it's important to note,” or “not just X, but Y” usually add words without explaining the behavior.
+- Read the edited paragraph aloud. Rewrite awkward sentences without inventing personal anecdotes, test results, or claims about authorship.
+
+For examples, see [Google's voice and tone guide](https://developers.google.com/style/tone) and [Microsoft's style and voice tips](https://learn.microsoft.com/en-us/style-guide/top-10-tips-style-voice). The [WikiProject AI Cleanup guide](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) describes repetitive phrasing and formatting seen in AI output. Its observations are context-dependent and don't establish who wrote a text.
