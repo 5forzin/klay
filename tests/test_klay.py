@@ -174,7 +174,7 @@ class ConfigurationTests(unittest.TestCase):
         share.mkdir()
         result = self.cli("init", "--shared-root", str(share))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["configPath"], str(self.path))
+        self.assertTrue(self.path.samefile(Path(json.loads(result.stdout)["configPath"])))
         config = klay.load_config(self.path)
         self.assertEqual(self.cli("once").returncode, 0)
         status = self.cli("status")
