@@ -445,9 +445,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command in ("watch", "once"):
         watch(config, once=args.command == "once")
     elif args.command == "status":
-        print(json.dumps({"status": read_json(runtime / "status.json", {}), "latest": read_json(runtime / "latest.json", {})}, indent=2, ensure_ascii=False))
+        print(json.dumps({"status": read_json(runtime / "status.json", {}), "latest": read_json(runtime / "latest.json", {})}, indent=2))
     elif args.command == "arm":
-        print(json.dumps(arm(args, config), indent=2, ensure_ascii=False))
+        print(json.dumps(arm(args, config), indent=2))
     elif args.command == "analyze":
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", args.crash_id):
             raise ValueError("Invalid crash ID.")
@@ -455,14 +455,14 @@ def _main(argv: list[str] | None = None) -> int:
             folder = Path(config["shared_root"]) / "crashes" / args.crash_id
             result = analyze(folder, config, args.commands_file)
             refresh(config)
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        print(json.dumps(result, indent=2))
         return 0 if result["state"] == "complete" else 1
     elif args.command == "wait":
         result = wait_for_crash(config, args.timeout, args.after, args.require_analysis)
         if result is None:
             print(json.dumps({"state": "timeout", "after": args.after, "timeoutSeconds": args.timeout}))
             return 2
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        print(json.dumps(result, indent=2))
         return 1 if result.get("analysisState") == "failed" else 0
     return 0
 

@@ -122,6 +122,8 @@ Se o heartbeat parou, confira se o processo do host está rodando. No guest, ver
 
 Se existe um evento de Bug Check mas falta o dump, leia `crash.json.error`. Confira o pagefile ativo, a configuração de dump, o espaço disponível e os eventos `volmgr` 46/161 do boot atual. Depois de mudar pagefile ou dump, reinicie e confira o próximo heartbeat. Na VM usada no teste original, foi necessário mais um boot para o pagefile ficar disponível ao mecanismo de dump. Considere os eventos do boot atual ao verificar se isso foi resolvido.
 
+Se a VM usa UWF, confira também se ele protege o volume do pagefile e descarta os arquivos da instalação após reiniciar. A [Microsoft documenta que o UWF desativa pagefiles na primeira ativação](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/uwf-filterenable), e [pagefiles não aceitam exclusões de arquivo](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/uwf-volumeaddexclusion). No teste do klay, o filtro foi desligado na VM de desenvolvimento antes da instalação. O instalador e `Restore-Guest.ps1` não alteram UWF.
+
 Se o KD falhou, leia `analysis.json.error` e `analysis.txt`. O erro pode apontar para integridade do dump, caminho do debugger, timeout ou símbolos. Se apenas `wait` terminou por timeout, confira o estado novamente: o monitor continua coletando e analisando.
 
 Guarde dumps, logs e arquivos de build fora do Git. Revise os trechos que precisar compartilhar. Combine com o responsável pela VM antes de provocar um crash ou reiniciá-la.

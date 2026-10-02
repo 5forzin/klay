@@ -10,6 +10,8 @@ Before each test, `klay arm` saves copies of the driver's `.sys` and `.pdb`. Tha
 
 You'll need a Windows x64 host and guest, VMware Workstation, VMware Tools, and Shared Folders. Install Python 3.11 or later and Microsoft's WinDbg or Debugging Tools for Windows on the host; klay uses `kd.exe`. The guest scripts run in Windows PowerShell 5.1.
 
+If the guest uses Unified Write Filter (UWF), check it before installation. Protected writes can be discarded after reboot, and [enabling UWF for the first time disables pagefiles](https://learn.microsoft.com/en-us/windows/configuration/unified-write-filter/uwf-filterenable). Configure the development VM so the installation and pagefile can persist. The klay installer doesn't change UWF settings.
+
 Clone the repo and install the CLI:
 
 ```powershell
@@ -88,6 +90,6 @@ powershell -NoProfile -File .\tests\Test-GuestExporter.ps1
 powershell -NoProfile -File .\tests\Test-HostMonitor.ps1
 ```
 
-These tests use temporary files and leave the VM alone. CI runs them on Windows with Python 3.11 and 3.14. See [validation](docs/VALIDATION.md) for test coverage and the results from the original relay's controlled VM crash.
+These tests use temporary files and leave the VM alone. CI runs them on Windows with Python 3.11 and 3.14. See [validation](docs/VALIDATION.md) for test coverage and the packaged klay's controlled VM crash test.
 
 For changes to the project, read [contributing](CONTRIBUTING.md) and [agent instructions](AGENTS.md). The Python runtime uses only the standard library.

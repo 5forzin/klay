@@ -195,6 +195,29 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("already exists", result.stderr)
         self.assertEqual(self.path.read_bytes(), original)
 
+    def test_json_output_preserves_unicode_on_a_windows_ansi_console(self):
+        share = self.root / "share"
+        klay.initialize(self.path, share, self.root / "data")
+        config = klay.load_config(self.path)
+        runtime = Path(config["runtime_root"])
+        message = "\u200eS\u00e3o Paulo \u2192 dump"
+        latest = {"crashId": "new", "analysisState": "complete", "message": message}
+        klay.write_json(runtime / "status.json", {"message": message})
+        klay.write_json(runtime / "latest.json", latest)
+        environment = {**os.environ, "PYTHONIOENCODING": "cp1252:strict"}
+        for command in (("status",), ("wait", "--timeout", "0", "--require-analysis")):
+            with self.subTest(command=command[0]):
+                result = subprocess.run(
+                    [sys.executable, str(Path(klay.__file__).resolve()), "--config", str(self.path), *command],
+                    capture_output=True, text=True, encoding="cp1252", env=environment, timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report = json.loads(result.stdout)
+                if command[0] == "status":
+                    self.assertEqual(report["status"]["message"], message)
+                    report = report["latest"]
+                self.assertEqual(report, latest)
+
     def test_invalid_paths_and_poll_limits_fail_before_monitoring(self):
         with self.assertRaisesRegex(ValueError, "absolute paths"):
             klay.initialize(self.path, Path("relative"))
