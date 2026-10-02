@@ -1,0 +1,9 @@
+{
+  "shared_root": "C:\\KlayShare",
+  "runtime_root": "C:\\KlayData\\runtime",
+  "build_root": "C:\\KlayData\\builds",
+  "debugger": null,
+  "poll_seconds": 5,
+  "guest_stale_seconds": 120,
+  "analysis_timeout_seconds": 600
+}

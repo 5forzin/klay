@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "klay"
+version = "0.1.0"
+description = "Kernel Relay: Windows VM crash collection and analysis for developers and AI coding agents."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Anthony Sforzin" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Debuggers",
+]
+
+[project.scripts]
+klay = "klay:main"
+
+[project.urls]
+Repository = "https://github.com/5forzin/klay"
+
+[tool.setuptools]
+py-modules = ["klay"]
