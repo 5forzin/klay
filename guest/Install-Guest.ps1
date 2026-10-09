@@ -1,14 +1,21 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$ShareRoot,
-    [string]$InstallRoot = (Join-Path $env:ProgramData 'Klay')
+    [string]$InstallRoot = (Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) 'Klay')
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Klay.Common.ps1')
+$InstallRoot = Resolve-KlayInstallRoot $InstallRoot
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this installer in an elevated PowerShell inside the VM.' }
 if (-not (Test-Path -LiteralPath $ShareRoot)) { throw 'VMware shared folder is unavailable. Enable VMware Tools / Shared Folders first.' }
 New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+$existingTask = Get-ScheduledTask -TaskName 'Klay-Export' -ErrorAction SilentlyContinue
+if ($null -ne $existingTask) {
+    Disable-ScheduledTask -TaskName 'Klay-Export' | Out-Null
+    Stop-ScheduledTask -TaskName 'Klay-Export'; Start-Sleep -Seconds 2
+}
+Protect-KlayInstallation $InstallRoot
 $crashKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl'
 $memoryKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
 $backupFile = Join-Path $InstallRoot 'settings-before.json'
@@ -22,16 +29,13 @@ if (-not (Test-Path -LiteralPath $backupFile)) {
     }
     Write-KlayJson $backupFile $backup
 }
-$existingTask = Get-ScheduledTask -TaskName 'Klay-Export' -ErrorAction SilentlyContinue
-if ($null -ne $existingTask) { Stop-ScheduledTask -TaskName 'Klay-Export'; Start-Sleep -Seconds 2 }
 foreach ($file in @('Klay.Common.ps1', 'Export-Crashes.ps1', 'Restore-Guest.ps1')) {
     $source = Join-Path $PSScriptRoot $file
     $target = Join-Path $InstallRoot $file
     if ([IO.Path]::GetFullPath($source) -ne [IO.Path]::GetFullPath($target)) { Copy-Item -LiteralPath $source -Destination $target -Force }
 }
-# The SYSTEM task executes only local code, writable by SYSTEM and administrators.
-& icacls.exe $InstallRoot '/inheritance:r' '/grant:r' '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Could not protect the guest installation directory.' }
+# Verify the copied code too, including explicit permissions on pre-existing files.
+Protect-KlayInstallation $InstallRoot
 foreach ($entry in @(@('CrashDumpEnabled', 7), @('AutoReboot', 1), @('LogEvent', 1), @('Overwrite', 1), @('AlwaysKeepMemoryDump', 1))) {
     New-ItemProperty -LiteralPath $crashKey -Name $entry[0] -Value $entry[1] -PropertyType DWord -Force | Out-Null
 }
